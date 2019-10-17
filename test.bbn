@@ -1,3 +1,7 @@
-clear blob
-;;;;;;;;
-;incr blob;incr blob;incr blob;
+clear X;
+incr X;
+incr X;
+incr X;
+while X not 0 do;
+   decr X;
+end;
