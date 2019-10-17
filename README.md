@@ -1,4 +1,4 @@
-An almost-working interpreter for languages following the Bare Bones definition.
+An almost-working interpreter for the Bare Bones language. While loops almost work.
 Bare Bones has three simple commands for manipulating a variable:
 ```
 clear name;
