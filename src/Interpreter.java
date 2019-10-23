@@ -2,7 +2,6 @@ import java.io.EOFException;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.*;
-import java.util.regex.Pattern;
 
 import org.apache.commons.text.StringEscapeUtils;
 
@@ -14,81 +13,80 @@ public class Interpreter {
             "incr",
             "decr",
             "while",
-            "end"
+            "if",
+            "func"
     );
     private static final List<String> reservedWords = Arrays.asList(
             "not",
-            "do"
+            "do",
+            "end",
+            "of"
     );
 
     private HashMap<String, Integer> status;
-    private String code;
+    private ArrayList<String> code;
     private int line;
 
-    private Interpreter(String code) throws EOFException {
+    private Interpreter(ArrayList<String> code) throws EOFException {
         this.status = new HashMap<>();
         this.code = code;
-        this.line = 1;
-        this.interpretBlock(code);
+        for(this.line = 1; this.line < code.size(); this.line++) {
+            this.interpretExpression(this.code.get(this.line-1));
+        }
     }
 
-    private void interpretBlock(String block) throws EOFException {
-        Scanner sc = new Scanner(block);
-        sc.useDelimiter(";");
-        while(sc.hasNext()) {
-            this.interpretExpression(sc.next());
+    private Interpreter(ArrayList<String> code, HashMap<String, Integer> status) throws EOFException {
+        this.status = status; // Pass outer scope
+        this.code = code;
+        for(this.line = 1; this.line < code.size()+1; this.line++) {
+            this.interpretExpression(this.code.get(this.line-1));
         }
-        sc.close();
     }
 
     private void interpretExpression(String expression) throws SyntaxError, EOFException {
         out.println(this.status);
-        out.print(this.line); out.print(" - "); out.println(expression);
-        Scanner sc = new Scanner(expression.trim());
-        sc.useDelimiter(Pattern.compile("[\\s]+")); // any multiple of any type of whitespace
-        if(sc.hasNext()) {
-            String statement = sc.next();
+        String trimmed = expression.trim();
+        out.print(this.line); out.print(" - "); out.println(trimmed);
+        String[] tokens = trimmed.split("[\\s]+"); // any multiple of any type of whitespace
+        if(tokens.length != 0) {
+            String statement = tokens[0];
             if(statements.contains(statement)) {
-                if(!sc.hasNext()) {
+                if(tokens.length == 1) {
                     throw new SyntaxError(this.line);
                 }
-                String operand = sc.next();
+                String operand = tokens[1];
                 if(reservedWords.contains(operand) || statements.contains(operand)) throw new ReservedTokenException(this.line, operand);
                 // clear
                 if(statement.equals(statements.get(0))) {
-                    if(sc.hasNext()) throw new UnexpectedTokenException(this.line, operand);
+                    if(tokens.length > 2) throw new UnexpectedTokenException(this.line, operand);
                     this.clear(operand);
                 }
                 // incr
                 if(statement.equals(statements.get(1))) {
-                    if(sc.hasNext()) throw new UnexpectedTokenException(this.line, operand);
+                    if(tokens.length > 2) throw new UnexpectedTokenException(this.line, operand);
                     this.increment(operand);
                 }
                 // decr
                 if(statement.equals(statements.get(2))) {
-                    if(sc.hasNext()) throw new UnexpectedTokenException(this.line, operand);
+                    if(tokens.length > 2) throw new UnexpectedTokenException(this.line, operand);
                     this.decrement(operand);
                 }
                 // while
                 if(statement.equals(statements.get(3))) {
                     if(!status.containsKey(operand)) throw new UndefinedException(this.line, operand);
-                    if(!sc.hasNext()) throw new SyntaxError(this.line);
-                    String notToken = sc.next();
+                    if(tokens.length < 5) throw new SyntaxError(this.line);
+                    if(tokens.length > 5) throw new UnexpectedTokenException(this.line, tokens[5]);
+                    String notToken = tokens[2];
                     if(!notToken.equals(reservedWords.get(0))) throw new UnexpectedTokenException(this.line, notToken); // not
-                    if(!sc.hasNext()) throw new SyntaxError(this.line);
-                    String zeroToken = sc.next();
+                    String zeroToken = tokens[3];
                     if(!zeroToken.equals(String.valueOf(0))) throw new UnexpectedTokenException(this.line, zeroToken); // 0
-                    if(!sc.hasNext()) throw new SyntaxError(this.line);
-                    String doToken = sc.next();
+                    String doToken = tokens[4];
                     if(!doToken.equals(reservedWords.get(1))) throw new UnexpectedTokenException(this.line, doToken); // do
-                    if(sc.hasNext()) throw new UnexpectedTokenException(this.line, operand);
                     this.whileDo(operand, this.line + 1);
                 }
             } else {
                 throw new UnexpectedTokenException(this.line, statement);
             }
-            sc.close();
-            this.line++;
         }
     }
 
@@ -110,23 +108,28 @@ public class Interpreter {
         } else throw new UndefinedException(this.line, operand);
     }
     private void whileDo(String operand, int line) throws EOFException {
-        Scanner sc = new Scanner(this.code);
-        sc.useDelimiter(";");
-        for(int i = 0; i < line-1; i++) {
-            sc.next();
+        ArrayList<String> remaining = new ArrayList<>(this.code.subList(line-1, this.code.size()));
+        Iterator<String> iterator = remaining.iterator();
+        int nestLevel = 1;
+        int endLine = 0;
+        while(iterator.hasNext()) {
+            String next = iterator.next();
+            for(String token : new String[]{statements.get(3), statements.get(4), statements.get(5)}) {
+                if(next.contains(token)) {
+                    nestLevel++;
+                }
+            }
+            if(next.contains(reservedWords.get(2))) nestLevel--;
+            if(nestLevel == 0) break;
+            endLine++;
+            if(!iterator.hasNext()) throw new EOFException("Reached end of file before while loop finished");
         }
-        sc.useDelimiter("\\A");
-        String remaining = sc.next();
-        sc.close();
-        String block = remaining.split("end;")[0];
-        if(block.equals(remaining)) {
-            throw new EOFException("Reached end of file before while loop finished");
-        }
+        ArrayList<String> block = new ArrayList<>(remaining.subList(0, endLine));
         while(this.status.get(operand) != 0) {
-            this.line = line;
-            out.println("looping");
-            this.interpretBlock(block);
+            Interpreter i = new Interpreter(block, this.status);
+            this.status.putAll(i.status);
         }
+        this.line = line + endLine;
     }
 
     public static void main(String[] args) throws FileNotFoundException, EOFException {
@@ -137,9 +140,10 @@ public class Interpreter {
             throw new IllegalArgumentException("No file given to interpret");
         }
         Scanner sc = new Scanner(new File(pathToProgram));
-        StringBuilder code = new StringBuilder();
-        while(sc.hasNextLine()) code.append(sc.nextLine());
-        Interpreter i = new Interpreter(code.toString());
+        sc.useDelimiter(";");
+        ArrayList<String> code = new ArrayList<>();
+        while(sc.hasNext()) code.add(sc.next());
+        Interpreter i = new Interpreter(code);
         out.println("Finishing status:");
         out.print(i.status);
     }
